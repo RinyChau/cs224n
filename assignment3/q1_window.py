@@ -19,6 +19,7 @@ from util import print_sentence, write_conll
 from data_util import load_and_preprocess_data, load_embeddings, read_conll, ModelHelper
 from ner_model import NERModel
 from defs import LBLS
+import numpy as np
 #from report import Report
 
 logger = logging.getLogger("hw3.q1")
@@ -35,7 +36,7 @@ class Config:
     TODO: Fill in what n_window_features should be, using n_word_features and window_size.
     """
     n_word_features = 2 # Number of features for every word in the input.
-    window_size = 1 # The size of the window to use.
+    window_size = 2 # The size of the window to use.
     ### YOUR CODE HERE
     n_window_features = (2 * window_size + 1) * n_word_features # The total number of features used for each window.
     ### END YOUR CODE
@@ -139,7 +140,7 @@ class WindowModel(NERModel):
         (Don't change the variable names)
         """
         ### YOUR CODE HERE (~3-5 lines)
-        self.input_placeholder = tf.placeholder(tf.float32, shape=(None, self.config.n_window_features))
+        self.input_placeholder = tf.placeholder(tf.int32, shape=(None, self.config.n_window_features))
         self.labels_placeholder = tf.placeholder(tf.int32, shape=(None))
         self.dropout_placeholder = tf.placeholder(tf.float32)
         ### END YOUR CODE
@@ -169,7 +170,6 @@ class WindowModel(NERModel):
             del feed_dict[self.labels_placeholder]
         if dropout is None:
             del feed_dict[self.dropout_placeholder]
-        
         ### END YOUR CODE
         return feed_dict
 
@@ -190,9 +190,10 @@ class WindowModel(NERModel):
             embeddings: tf.Tensor of shape (None, n_window_features*embed_size)
         """
         ### YOUR CODE HERE (!3-5 lines)
-                                                             
-                                  
-                                                                                                                 
+        embedding_tensor = tf.Variable(self.pretrained_embeddings)
+        embeddings = tf.nn.embedding_lookup(embedding_tensor, self.input_placeholder)
+        embeddings = tf.reshape(embeddings, (-1, self.config.n_window_features*self.config.embed_size))
+        
         ### END YOUR CODE
         return embeddings
 
@@ -223,7 +224,17 @@ class WindowModel(NERModel):
         x = self.add_embedding()
         dropout_rate = self.dropout_placeholder
         ### YOUR CODE HERE (~10-20 lines)
-
+        W =  tf.get_variable('W', (self.config.n_window_features*self.config.embed_size, self.config.hidden_size), tf.float32, tf.contrib.layers.xavier_initializer())
+        # b1 = tf.get_variable('b1', None, tf.float32, np.zeros(self.config.hidden_size, dtype=np.float32))
+        b1 = tf.get_variable('b1',[self.config.hidden_size], tf.float32, tf.constant_initializer(0))
+        h = tf.nn.relu(tf.matmul(x, W) + b1)
+        
+        h_drop = tf.nn.dropout(h, self.dropout_placeholder)
+        
+        U = tf.get_variable('U', (self.config.hidden_size, self.config.n_classes), tf.float32, tf.contrib.layers.xavier_initializer())
+        # b2 = tf.get_variable('b2', None, tf.float32, np.zeros(self.config.n_classes, dtype=np.float32))
+        b2 = tf.get_variable('b2',[self.config.n_classes], tf.float32, tf.constant_initializer(0))
+        pred = tf.matmul(h_drop, U) + b2
         ### END YOUR CODE
         return pred
 
@@ -241,7 +252,8 @@ class WindowModel(NERModel):
             loss: A 0-d tensor (scalar)
         """
         ### YOUR CODE HERE (~2-5 lines)
-                                   
+        total_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.labels_placeholder, logits= pred)
+        loss = tf.reduce_mean(total_loss)                          
         ### END YOUR CODE
         return loss
 
@@ -265,7 +277,8 @@ class WindowModel(NERModel):
             train_op: The Op for training.
         """
         ### YOUR CODE HERE (~1-2 lines)
-
+        opt = tf.train.AdamOptimizer(self.config.lr)
+        train_op = opt.minimize(loss)
         ### END YOUR CODE
         return train_op
 
